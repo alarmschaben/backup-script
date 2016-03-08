@@ -1,0 +1,7 @@
+#!/bin/bash
+
+source $(dirname $0)/backup-settings
+
+gpg -ver $GPGKEYID $1 2>> $2 && rm $1 || echo "*** ERROR DURING GPG RUN. SEE LOG FOR DETAILS ***"
+
+scp -o "StrictHostKeyChecking no" -i $SSHPUBKEY $1.gpg $DESTINATION || echo "*** ERROR DURING SCP RUN. SEE LOG FOR DETAILS ***" && rm $1.gpg

@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# Target directory for the backup to go to
+BACKUP_TARGET=/backup/`hostname`
+
+# Metafile names
+METAFILE_LEVEL1=$BACKUP_TARGET/meta/`hostname`-backup-metadata-level1.db
+METAFILE_LEVEL2=$BACKUP_TARGET/meta/`hostname`-backup-metadata-level2.db
+
+# Directories to be backed up
+BACKUP_DIRS="/etc /var/vmail"
+
+# GPG key ID for encryption key
+GPGKEYID=DEADBEEF
+
+# SSH public key for scp transfer
+SSHPUBKEY=/root/bup-script/pubkey
+
+start_services() {
+    sync
+    sleep 5
+    service dovecot start
+    service fetchmail start
+    rm -rf /tmp/dumps
+}
+
+stop_services() {
+    service fetchmail stop
+    sleep 10
+    service dovecot stop
+    rm -rf /tmp/dumps
+    mkdir /tmp/dumps
+    cd /
+}

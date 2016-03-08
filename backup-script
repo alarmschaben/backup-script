@@ -1,0 +1,127 @@
+#!/bin/bash
+
+#
+# Backup Master script 
+# 2008-09-10 alarmschaben
+#
+# Change 2008-09-10: new, uniformed version
+# Change 2009-01-09: fixed a bug where BACKUP_IN_PROGRESS was not prepended by the hostname in check_running()
+# Change 2010-06-23: start_services was not called when exiting from check_mounted. Fixed.
+
+# Import per-host settings from separate file
+source $(dirname $0)/backup-settings
+
+check_running() {
+    if [ -e $BACKUP_TARGET/`hostname`-BACKUP_IN_PROGRESS ]
+    then 
+        echo "Backup process already running. Exit."
+        exit 1
+    fi
+}
+
+check_mounted() {
+    mount -a
+    if [ ! -e $BACKUP_TARGET/.mount-identifier ]
+    then
+        echo "Backup target not mounted. Exit."
+        start_services
+        exit 2
+    fi
+}
+
+produce_listing() {
+    echo "--- DIRECTORY LISTING FOLLOWS ---" >> $logfilename
+    ls -Rlah $BACKUP_TARGET >> $logfilename
+}
+
+prepare_run() {
+    check_running
+    stop_services
+
+    touch $BACKUP_TARGET/`hostname`-BACKUP_IN_PROGRESS
+
+    filename=$BACKUP_TARGET/$1/`hostname`-backup-$1-`date +%F`
+    logfilename=$BACKUP_TARGET/logs/`hostname`-backup-$1-`date +%F`.log
+
+    # we need this variable for the tar invocation
+    export FNAME=$filename.tar
+
+}
+
+after_tar() {
+    if [ $PIPESTATUS != 0 ]
+    then
+        echo "*** ERROR DURING TAR RUN. SEE LOG FOR DETAILS ***"
+    fi
+
+    echo "--- TAR RUN FINISHED AT `date` ---" >> $logfilename
+
+    start_services
+}
+
+finish_run() {
+    find $BACKUP_TARGET -wholename "$filename.tar*" -exec $(dirname $0)/backup-helper {} $logfilename \;
+
+    echo "--- GPG RUN FINISHED AT `date` ---" >> $logfilename
+    rm $BACKUP_TARGET/`hostname`-BACKUP_IN_PROGRESS
+
+    produce_listing
+    echo "--- END OF SCRIPT ---" >> $logfilename
+    #		umount /backup
+}
+
+case $1 in
+
+    level0)
+        prepare_run level0
+
+        # delete old metadata since we're creating a new full backup
+        rm $METAFILE_LEVEL1
+        rm $METAFILE_LEVEL2
+
+        tar cv  --listed-incremental=$METAFILE_LEVEL1 \
+            $BACKUP_DIRS 2> $logfilename \
+            | split --suffix-length=3 -d --bytes=1000m - $FNAME.
+
+        after_tar
+
+        # create "working copy" for level2
+        cp $METAFILE_LEVEL1 $METAFILE_LEVEL2
+
+        finish_run
+        ;;
+
+    level1)
+        prepare_run level1
+
+        # create "working copy" for level1 and level2
+        cp $METAFILE_LEVEL1 $METAFILE_LEVEL2
+
+        tar cv  --listed-incremental=$METAFILE_LEVEL2 \
+            $BACKUP_DIRS 2> $logfilename \
+            | split --suffix-length=3 -d --bytes=1000m - $FNAME.
+
+        after_tar
+        finish_run
+        ;;
+
+    level2)
+        prepare_run level2
+
+        tar cv  --listed-incremental=$METAFILE_LEVEL2 \
+            $BACKUP_DIRS 2> $logfilename \
+            | split --suffix-length=3 -d --bytes=1000m - $FNAME.
+
+        after_tar
+        finish_run
+
+        ;;
+
+    *)
+        echo "Usage: backup-script <level0|level1|level2>"
+        exit 0
+        ;;
+
+    esac
+
+    exit 0
